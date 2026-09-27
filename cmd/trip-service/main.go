@@ -9,12 +9,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Znakous/template/internal/config"
 	"github.com/Znakous/template/internal/handler"
+	"github.com/Znakous/template/internal/readiness"
+	"github.com/Znakous/template/internal/repository/postgres"
 	"github.com/Znakous/template/internal/service"
+	"github.com/Znakous/template/internal/transaction"
 )
 
 func main() {
@@ -26,8 +30,10 @@ func main() {
 		os.Exit(1)
 	}
 }
-
 func run(ctx context.Context) error {
+	appCtx, cancelAppCtx := context.WithCancel(ctx)
+	defer cancelAppCtx()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -44,22 +50,28 @@ func run(ctx context.Context) error {
 	poolConfig.MinConns = cfg.DatabaseMinConns
 	poolConfig.MaxConnLifetime = cfg.DatabaseMaxConnLifetime
 
-	database, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	database, err := pgxpool.NewWithConfig(appCtx, poolConfig)
 	if err != nil {
-		return fmt.Errorf("create database pool: %w", err)
+		return fmt.Errorf("init database pool: %w", err)
 	}
 	defer database.Close()
 
-	connectCtx, cancelConnect := context.WithTimeout(ctx, cfg.DatabaseConnectTimeout)
+	connectCtx, cancelConnect := context.WithTimeout(appCtx, cfg.DatabaseConnectTimeout)
 	err = database.Ping(connectCtx)
 	cancelConnect()
 	if err != nil {
 		return fmt.Errorf("ping database: %w", err)
 	}
 
+	transactions := transaction.New(database, cfg.DatabaseQueryTimeout)
+	tripRepository := postgres.NewTrips(database)
+	statusHistoryRepository := postgres.NewStatusHistory(database)
+	tripService := service.New(transactions, tripRepository, statusHistoryRepository, cfg.DatabaseQueryTimeout)
+	readinessChecker := readiness.New(database, cfg.DatabaseQueryTimeout)
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handler.New(service.New(database, cfg.DatabaseQueryTimeout)),
+		Handler:           handler.New(readinessChecker, tripService),
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
@@ -73,7 +85,7 @@ func run(ctx context.Context) error {
 	logger.Info("trip service started", "addr", cfg.HTTPAddr)
 
 	select {
-	case <-ctx.Done():
+	case <-appCtx.Done():
 	case err := <-serverErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("serve HTTP: %w", err)
@@ -81,16 +93,24 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
-	defer cancelShutdown()
+	return shutdownResources(server, cfg.ShutdownTimeout, logger)
+}
+
+func shutdownResources(server *http.Server, timeout time.Duration, logger *slog.Logger) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown timed out; forcing HTTP server close", "error", err)
+		logger.Error("graceful shutdown failed; closing active HTTP connections", "error", err)
 		if closeErr := server.Close(); closeErr != nil {
-			return fmt.Errorf("force close HTTP server after shutdown error: %w", closeErr)
+			return errors.Join(
+				fmt.Errorf("graceful HTTP shutdown: %w", err),
+				fmt.Errorf("force close HTTP server: %w", closeErr),
+			)
 		}
 		return fmt.Errorf("graceful HTTP shutdown: %w", err)
 	}
 
-	logger.Info("trip service stopped")
+	logger.Info("trip service stopped gracefully")
 	return nil
 }
