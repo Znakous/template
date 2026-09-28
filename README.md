@@ -1,45 +1,68 @@
-# TripGo — репозиторий для лабораторных работ
-
-Заготовка курса «Разработка микросервисов на Go». Здесь вы делаете все пять
-работ: каждая следующая продолжает предыдущую, переписывать сервис с нуля не
-нужно.
-
-## Что делать сразу
-
-1. **Fork** этого репозитория к себе. Форк нужен, чтобы преподаватели видели
-   список всех работ курса одной страницей.
-2. Заведите модуль:
-
-```bash
-git clone git@github.com:<ваш-логин>/<ваш-репозиторий>.git
-cd <ваш-репозиторий>
-go mod init github.com/<ваш-логин>/<ваш-репозиторий>
+## инструкции
+```sh
+tripgoctl cluster start
+tripgoctl environment start
+tripgoctl connect
+```
+накат
+```sh
+make migrate
+```
+запуск
+```sh
+make run
 ```
 
-Путь модуля потом не меняется — иначе придётся править все импорты. Проще всего
-взять адрес своего репозитория, каким бы он ни был.
+убить
+```sh
+make kill
+```
 
-Дальше — [`homework/docs/getting-started.md`](https://github.com/course-go-autumn-2026/course/blob/main/homework/docs/getting-started.md)
-в репозитории курса: инструменты, окружение, миграции, вид сданной работы.
+тесты
+```sh
+go test ./...
+```
 
-## Где что лежит
 
-| Что | Где |
-|---|---|
-| Задания, документация, контракты | [`course-go-autumn-2026/course`](https://github.com/course-go-autumn-2026/course) |
-| Слайды и записи лекций | [`lections/`](https://github.com/course-go-autumn-2026/course/tree/main/lections) |
-| Как оценивают, дедлайны, порядок сдачи | [`homework/docs/grading.md`](https://github.com/course-go-autumn-2026/course/blob/main/homework/docs/grading.md) |
-| Локальное окружение и утилита `tripgoctl` | [`course-go-autumn-2026/course-infra`](https://github.com/course-go-autumn-2026/course-infra) |
+Докер
+```sh
+docker build -t trip-service:latest .
+docker run -d --env-file .env -p 8080:8080 trip-service
+```
 
-Задания появляются по мере курса, каждое — после своей пары лекций.
+## вопросы
 
-## Как сдавать
+### Как работает менеджер транзакций?
+Менеджер стартует транзакцию, pgx.Tx отправляется в контекст, репы будут просить executor через ExecutorFromContext - когда мы в транзакции это транзакция, иначе пул
 
-Ветка `homework/NN` от `main`, pull request в `main` своего форка, ссылка
-ментору до дедлайна. Подробно — в `grading.md` репозитория курса.
+### Что будет при двух одновременных finish?
+Там UPDATE ... WHERE id = $1 AND status = 'active' и поэтому всё круто
 
-## Чужие работы
+### Зачем /ready отдельно от /health и почему /health не ходит в базу
+Health - алё а в этой поде что-то живое есть, что нам может ответить
 
-Форки видны всем, включая ваши. Смотреть чужие решения, пока идёт курс, —
-плохая идея: одинаковый код виден сразу, а разбираться на защите придётся
-самому.
+Ready - ты точно не отдашь фигню, если данные будут валидные / ты готов обрабатывать запрос. Без пинга БД не можем гарантировать, что всё будет ок и на всё не прилетит 500
+
+## Переменные
+HTTP_ADDR=:8080 ибо нефиг
+
+LOG_LEVEL=info debug отключаем, мы в проде
+
+SHUTDOWN_TIMEOUT=10s логично
+
+DATABASE_URL=postgres://tripgo:tripgo@localhost:21032/tripgo?sslmode=disable ну урла
+
+DATABASE_MAX_CONNS=10 подбирается эмпирически
+
+DATABASE_MIN_CONNS=2 туда же
+
+DATABASE_MAX_CONN_LIFETIME=30m и это тоже
+
+DATABASE_CONNECT_TIMEOUT=5s ...
+
+DATABASE_QUERY_TIMEOUT=3s ...
+
+
+## Что сделано в лабе 
+
+Все что было в основном условии + Idempotency key (к нему докинул еще TTL по приколу)
