@@ -30,5 +30,6 @@ CREATE UNIQUE INDEX trips_one_active_per_driver_idx
     WHERE status = 'active';
 
 -- +goose Down
-DROP TABLE IF EXISTS trips;
 DROP INDEX IF EXISTS trips_status_started_at_idx;
+DROP INDEX IF EXISTS trips_one_active_per_driver_idx;
+DROP TABLE IF EXISTS trips;

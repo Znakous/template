@@ -12,5 +12,5 @@ CREATE INDEX trip_status_history_trip_changed_idx
     ON trip_status_history (trip_id, changed_at);
 
 -- +goose Down
-DROP TABLE IF EXISTS trip_status_history;
 DROP INDEX IF EXISTS trip_status_history_trip_changed_idx;
+DROP TABLE IF EXISTS trip_status_history;

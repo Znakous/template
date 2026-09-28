@@ -23,6 +23,13 @@ make kill
 go test ./...
 ```
 
+
+Докер
+```sh
+docker build -t trip-service:latest .
+docker run -d --env-file .env -p 8080:8080 trip-service
+```
+
 ## вопросы
 
 ### Как работает менеджер транзакций?
@@ -58,4 +65,4 @@ DATABASE_QUERY_TIMEOUT=3s ...
 
 ## Что сделано в лабе 
 
-Все что было в основном условии + Idempotency key
+Все что было в основном условии + Idempotency key (к нему докинул еще TTL по приколу)
