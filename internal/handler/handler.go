@@ -59,7 +59,7 @@ func (h *handler) Ready(w http.ResponseWriter, r *http.Request) {
 func (h *handler) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
 	data, err := decodeTripData(w, r)
 	if err != nil {
-		writeProblem(w, r, http.StatusBadRequest, "Invalid request", "invalid_request", "Request validation failed")
+		writeProblem(w, r, http.StatusBadRequest, "Invalid request", "invalid_request", "Request validation failed: "+err.Error())
 		return
 	}
 	if data.UserId == uuid.Nil || data.DriverId == uuid.Nil ||
