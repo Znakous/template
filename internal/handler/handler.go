@@ -24,7 +24,7 @@ type readinessChecker interface {
 }
 
 type tripService interface {
-	CreateTrip(ctx context.Context, trip model.Trip) (model.Trip, error)
+	CreateTrip(ctx context.Context, trip model.Trip, idempotencyKey *uuid.UUID) (model.Trip, bool, error)
 	GetTrip(ctx context.Context, id uuid.UUID) (model.Trip, error)
 	FinishTrip(ctx context.Context, id uuid.UUID) (model.Trip, error)
 }
@@ -56,7 +56,7 @@ func (h *handler) Ready(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.HealthResponse{Status: api.Ok})
 }
 
-func (h *handler) CreateTrip(w http.ResponseWriter, r *http.Request, _ api.CreateTripParams) {
+func (h *handler) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
 	data, err := decodeTripData(w, r)
 	if err != nil {
 		writeProblem(w, r, http.StatusBadRequest, "Invalid request", "invalid_request", "Request validation failed")
@@ -68,7 +68,13 @@ func (h *handler) CreateTrip(w http.ResponseWriter, r *http.Request, _ api.Creat
 		return
 	}
 
-	trip, err := h.trips.CreateTrip(r.Context(), model.Trip{
+	var idempotencyKey *uuid.UUID
+	if params.IdempotencyKey != nil {
+		key := uuid.UUID(*params.IdempotencyKey)
+		idempotencyKey = &key
+	}
+
+	trip, created, err := h.trips.CreateTrip(r.Context(), model.Trip{
 		UserID:         uuid.UUID(data.UserId),
 		DriverID:       uuid.UUID(data.DriverId),
 		StartLatitude:  data.StartPoint.Latitude,
@@ -76,13 +82,17 @@ func (h *handler) CreateTrip(w http.ResponseWriter, r *http.Request, _ api.Creat
 		EndLatitude:    data.EndPoint.Latitude,
 		EndLongitude:   data.EndPoint.Longitude,
 		Price:          data.Price,
-	})
+	}, idempotencyKey)
 	if err != nil {
 		h.writeTripError(w, r, err)
 		return
 	}
-	w.Header().Set("Location", "/api/v1/trips/"+trip.ID.String())
-	writeJSON(w, http.StatusCreated, tripResponse(trip))
+	if created {
+		w.Header().Set("Location", "/api/v1/trips/"+trip.ID.String())
+		writeJSON(w, http.StatusCreated, tripResponse(trip))
+		return
+	}
+	writeJSON(w, http.StatusOK, tripResponse(trip))
 }
 
 func (h *handler) GetTrip(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
@@ -107,6 +117,8 @@ func (h *handler) writeTripError(w http.ResponseWriter, r *http.Request, err err
 	switch {
 	case errors.Is(err, model.ErrDriverBusy):
 		writeProblem(w, r, http.StatusConflict, "Driver busy", "driver_busy", "Driver already has an active trip")
+	case errors.Is(err, model.ErrIdempotencyConflict):
+		writeProblem(w, r, http.StatusConflict, "Idempotency conflict", "idempotency_conflict", "Idempotency-Key was already used with a different request body")
 	case errors.Is(err, model.ErrTripNotFound):
 		writeProblem(w, r, http.StatusNotFound, "Trip not found", "trip_not_found", "Trip was not found")
 	case errors.Is(err, model.ErrTripCompleted):

@@ -66,7 +66,8 @@ func run(ctx context.Context) error {
 	transactions := transaction.New(database, cfg.DatabaseQueryTimeout)
 	tripRepository := postgres.NewTrips(database)
 	statusHistoryRepository := postgres.NewStatusHistory(database)
-	tripService := service.New(transactions, tripRepository, statusHistoryRepository, cfg.DatabaseQueryTimeout)
+	idempotencyRepository := postgres.NewIdempotencyKeys(database)
+	tripService := service.New(transactions, tripRepository, statusHistoryRepository, idempotencyRepository, cfg.DatabaseQueryTimeout)
 	readinessChecker := readiness.New(database, cfg.DatabaseQueryTimeout)
 
 	server := &http.Server{

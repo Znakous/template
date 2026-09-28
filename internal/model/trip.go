@@ -15,10 +15,20 @@ const (
 )
 
 var (
-	ErrDriverBusy    = errors.New("driver already has an active trip")
-	ErrTripNotFound  = errors.New("trip not found")
-	ErrTripCompleted = errors.New("trip already completed")
+	ErrDriverBusy             = errors.New("driver already has an active trip")
+	ErrTripNotFound           = errors.New("trip not found")
+	ErrTripCompleted          = errors.New("trip already completed")
+	ErrIdempotencyConflict    = errors.New("idempotency key already used with a different request")
+	ErrIdempotencyKeyExists   = errors.New("idempotency key already exists")
+	ErrIdempotencyKeyNotFound = errors.New("idempotency key not found")
 )
+
+type IdempotencyRecord struct {
+	Key         uuid.UUID
+	TripID      uuid.UUID
+	RequestHash string
+	CreatedAt   time.Time
+}
 
 type Trip struct {
 	ID             uuid.UUID
