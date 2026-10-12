@@ -35,3 +35,10 @@ generate:
 kill:
 	@pkill -f "trip-service" || true
 
+docker:
+	docker run -d \
+      --name trip-service \
+      -p 8080:8080 \
+      --env-file .env \
+      --add-host=host.docker.internal:host-gateway \
+      trip-service:latest

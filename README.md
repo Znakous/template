@@ -10,6 +10,11 @@ make migrate
 ```
 запуск
 ```sh
+в .env дописать (значения при желании можно менять)
+HTTP_READ_TIMEOUT=5s
+HTTP_READ_HEADER_TIMEOUT=2s
+HTTP_WRITE_TIMEOUT=10s
+HTTP_IDLE_TIMEOUT=60s
 make run
 ```
 
@@ -35,6 +40,7 @@ docker run -d --env-file .env -p 8080:8080 trip-service
 ### Как работает менеджер транзакций?
 Менеджер стартует транзакцию, pgx.Tx отправляется в контекст, репы будут просить executor через ExecutorFromContext - когда мы в транзакции это транзакция, иначе пул
 
+уровень изоляции - Read Commited -> BeginTx(txCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 ### Что будет при двух одновременных finish?
 Там UPDATE ... WHERE id = $1 AND status = 'active' и поэтому всё круто
 
