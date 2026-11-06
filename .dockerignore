@@ -1,0 +1,12 @@
+.git
+.git/
+.gitignore
+.env
+.env.*
+*.env
+Dockerfile*
+docker-compose*
+*.md
+.idea/
+.vscode/
+.tripgo/
