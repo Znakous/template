@@ -3,7 +3,7 @@
 
 export
 
-.PHONY: migrate migrate-down migrate-status run test generate check healthcheck new-migration
+.PHONY: migrate migrate-down migrate-status run test test-integration lint generate check healthcheck new-migration
 
 migrate:
 	go tool goose -dir ./migrations postgres "$(DATABASE_URL)" up
@@ -18,7 +18,14 @@ run:
 	go run ./cmd/trip-service
 
 test:
-	go test -race -count=2 ./cmd/... ./internal/...
+	go test -race -count=2 -coverprofile=coverage.out ./cmd/... ./internal/...
+	go tool cover -func=coverage.out | tail -n 1
+
+test-integration:
+	go test -race -count=1 -tags integration ./internal/repository/...
+
+lint:
+	golangci-lint run
 
 check:
 	sh tools/check.sh
@@ -31,6 +38,7 @@ new-migration:
 
 generate:
 	go tool oapi-codegen -generate types,chi-server -include-operation-ids createTrip,getTrip,finishTrip,health,ready -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
+	go generate ./...
 
 kill:
 	@pkill -f "trip-service" || true

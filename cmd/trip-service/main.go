@@ -4,32 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Znakous/template/internal/config"
-	"github.com/Znakous/template/internal/handler"
-	"github.com/Znakous/template/internal/readiness"
-	"github.com/Znakous/template/internal/repository/postgres"
-	"github.com/Znakous/template/internal/service"
-	"github.com/Znakous/template/internal/transaction"
+	"github.com/Znakous/template/internal/container"
 )
 
 func main() {
+	os.Exit(runMain())
+}
+
+func runMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx); err != nil {
-		slog.Error("trip service stopped with an error", "error", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "trip service stopped with an error: %v\n", err)
+		return 1
 	}
+	return 0
 }
+
 func run(ctx context.Context) error {
 	appCtx, cancelAppCtx := context.WithCancel(ctx)
 	defer cancelAppCtx()
@@ -39,40 +37,15 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
-	slog.SetDefault(logger)
-
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	app, err := container.New(appCtx, cfg)
 	if err != nil {
-		return fmt.Errorf("parse database URL: %w", err)
+		return err
 	}
-	poolConfig.MaxConns = cfg.DatabaseMaxConns
-	poolConfig.MinConns = cfg.DatabaseMinConns
-	poolConfig.MaxConnLifetime = cfg.DatabaseMaxConnLifetime
-
-	database, err := pgxpool.NewWithConfig(appCtx, poolConfig)
-	if err != nil {
-		return fmt.Errorf("init database pool: %w", err)
-	}
-	defer database.Close()
-
-	connectCtx, cancelConnect := context.WithTimeout(appCtx, cfg.DatabaseConnectTimeout)
-	err = database.Ping(connectCtx)
-	cancelConnect()
-	if err != nil {
-		return fmt.Errorf("ping database: %w", err)
-	}
-
-	transactions := transaction.New(database, cfg.DatabaseQueryTimeout)
-	tripRepository := postgres.NewTrips(database)
-	statusHistoryRepository := postgres.NewStatusHistory(database)
-	idempotencyRepository := postgres.NewIdempotencyKeys(database)
-	tripService := service.New(transactions, tripRepository, statusHistoryRepository, idempotencyRepository, cfg.DatabaseQueryTimeout)
-	readinessChecker := readiness.New(database, cfg.DatabaseQueryTimeout)
+	defer app.Close()
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handler.New(readinessChecker, tripService),
+		Handler:           app.Handler,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
@@ -83,7 +56,7 @@ func run(ctx context.Context) error {
 	go func() {
 		serverErrors <- server.ListenAndServe()
 	}()
-	logger.Info("trip service started", "addr", cfg.HTTPAddr)
+	app.Logger.Info("trip service started", "addr", cfg.HTTPAddr)
 
 	select {
 	case <-appCtx.Done():
@@ -94,15 +67,15 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	return shutdownResources(server, cfg.ShutdownTimeout, logger)
+	return shutdown(server, app)
 }
 
-func shutdownResources(server *http.Server, timeout time.Duration, logger *slog.Logger) error {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+func shutdown(server *http.Server, app *container.Container) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed; closing active HTTP connections", "error", err)
+		app.Logger.Error("graceful shutdown failed; closing active HTTP connections", "error", err)
 		if closeErr := server.Close(); closeErr != nil {
 			return errors.Join(
 				fmt.Errorf("graceful HTTP shutdown: %w", err),
@@ -112,6 +85,6 @@ func shutdownResources(server *http.Server, timeout time.Duration, logger *slog.
 		return fmt.Errorf("graceful HTTP shutdown: %w", err)
 	}
 
-	logger.Info("trip service stopped gracefully")
+	app.Logger.Info("trip service stopped gracefully")
 	return nil
 }
