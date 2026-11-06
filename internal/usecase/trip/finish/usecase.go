@@ -3,6 +3,7 @@ package finish
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,8 @@ type Usecase struct {
 	trips        tripRepository
 	history      statusHistoryRepository
 	queryTimeout time.Duration
+	metrics      metrics
+	logger       *slog.Logger
 }
 
 func New(
@@ -22,12 +25,16 @@ func New(
 	trips tripRepository,
 	history statusHistoryRepository,
 	queryTimeout time.Duration,
+	metrics metrics,
+	logger *slog.Logger,
 ) *Usecase {
 	return &Usecase{
 		transactions: transactions,
 		trips:        trips,
 		history:      history,
 		queryTimeout: queryTimeout,
+		metrics:      metrics,
+		logger:       logger,
 	}
 }
 
@@ -52,5 +59,7 @@ func (u *Usecase) Finish(ctx context.Context, id uuid.UUID) (trip.Trip, error) {
 	if err != nil {
 		return trip.Trip{}, fmt.Errorf("finish trip transaction: %w", err)
 	}
+	u.metrics.TripCompleted(ctx)
+	u.logger.Info("trip completed", "trip_id", result.ID.String())
 	return result, nil
 }

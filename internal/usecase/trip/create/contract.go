@@ -1,3 +1,4 @@
+//go:generate mockgen -source ${GOFILE} -destination mocks_test.go -package ${GOPACKAGE}_test
 package create
 
 import (
@@ -42,5 +43,9 @@ type (
 
 	txManager interface {
 		Do(ctx context.Context, fn func(ctx context.Context) error) error
+	}
+
+	metrics interface {
+		TripCreated(ctx context.Context)
 	}
 )

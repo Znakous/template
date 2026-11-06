@@ -47,6 +47,14 @@ func WriteBadRequest(w http.ResponseWriter, r *http.Request, detail string) {
 	respond.Problem(w, status, body)
 }
 
+func WriteInternal(w http.ResponseWriter, r *http.Request) {
+	status := http.StatusInternalServerError
+	body := problem(status, "Internal Server Error", "internal_error", "Internal server error")
+	instance := r.URL.Path
+	body.Instance = &instance
+	respond.Problem(w, status, body)
+}
+
 func problem(status int, title, code, detail string) api.Problem {
 	return api.Problem{
 		Type:   "https://tripgo.example/problems/" + strings.ReplaceAll(code, "_", "-"),

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ type Usecase struct {
 	history      statusHistoryRepository
 	idempotency  idempotencyRepository
 	queryTimeout time.Duration
+	metrics      metrics
+	logger       *slog.Logger
 }
 
 func New(
@@ -30,6 +33,8 @@ func New(
 	history statusHistoryRepository,
 	idempotency idempotencyRepository,
 	queryTimeout time.Duration,
+	metrics metrics,
+	logger *slog.Logger,
 ) *Usecase {
 	return &Usecase{
 		transactions: transactions,
@@ -37,6 +42,8 @@ func New(
 		history:      history,
 		idempotency:  idempotency,
 		queryTimeout: queryTimeout,
+		metrics:      metrics,
+		logger:       logger,
 	}
 }
 
@@ -57,6 +64,8 @@ func (u *Usecase) Create(ctx context.Context, in Input, idempotencyKey *uuid.UUI
 	for range 2 {
 		created, err := u.insertTrip(ctx, *t, idempotencyKey, requestHash)
 		if err == nil {
+			u.metrics.TripCreated(ctx)
+			u.logger.Info("trip created", "trip_id", created.ID.String())
 			return Output{Trip: created, Created: true}, nil
 		}
 		if idempotencyKey == nil || !errors.Is(err, trip.ErrIdempotencyKeyExists) {

@@ -1,13 +1,17 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/Znakous/template/internal/generated"
 	"github.com/Znakous/template/internal/http/domainerror"
 	"github.com/Znakous/template/internal/http/health"
+	"github.com/Znakous/template/internal/http/middleware"
 	"github.com/Znakous/template/internal/http/trip/create"
 	"github.com/Znakous/template/internal/http/trip/finish"
 	"github.com/Znakous/template/internal/http/trip/get"
@@ -25,9 +29,17 @@ func NewRouter(
 	get *get.Handler,
 	finish *finish.Handler,
 	health *health.Handler,
+	logger *slog.Logger,
+	tracerProvider *sdktrace.TracerProvider,
+	meterProvider *sdkmetric.MeterProvider,
 ) http.Handler {
 	s := &Server{create: create, get: get, finish: finish, health: health}
 	router := chi.NewRouter()
+	router.Use(
+		middleware.Recover(logger),
+		middleware.OTelHTTP(tracerProvider, meterProvider),
+		middleware.Logging(logger),
+	)
 	return api.HandlerWithOptions(s, api.ChiServerOptions{
 		BaseRouter:       router,
 		ErrorHandlerFunc: s.handleRequestError,

@@ -23,6 +23,11 @@ type Config struct {
 	DatabaseMaxConnLifetime time.Duration
 	DatabaseConnectTimeout  time.Duration
 	DatabaseQueryTimeout    time.Duration
+
+	OTELServiceName          string
+	OTELExporterOTLPEndpoint string
+	OTELExporterOTLPProtocol string
+	OTLPTracesSampler        string
 }
 
 func Load() (Config, error) {
@@ -72,7 +77,20 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_MIN_CONNS must be non-negative and no greater than DATABASE_MAX_CONNS")
 	}
 
+	cfg.OTELServiceName = optional("OTEL_SERVICE_NAME", "trip-service")
+	cfg.OTELExporterOTLPEndpoint = optional("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+	cfg.OTELExporterOTLPProtocol = optional("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	cfg.OTLPTracesSampler = optional("OTEL_TRACES_SAMPLER", "parentbased_always_on")
+
 	return cfg, nil
+}
+
+func optional(name, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func required(name string) (string, error) {

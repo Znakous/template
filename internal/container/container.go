@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Znakous/template/internal/config"
@@ -15,6 +14,7 @@ import (
 	geth "github.com/Znakous/template/internal/http/trip/get"
 	"github.com/Znakous/template/internal/infra/postgres"
 	"github.com/Znakous/template/internal/infra/postgres/transaction"
+	"github.com/Znakous/template/internal/infra/telemetry"
 	repoIdempotency "github.com/Znakous/template/internal/repository/idempotency"
 	repoHistory "github.com/Znakous/template/internal/repository/status_history"
 	repoTrip "github.com/Znakous/template/internal/repository/trip"
@@ -37,10 +37,15 @@ func (c *Container) Close() {
 }
 
 func New(ctx context.Context, cfg config.Config) (*Container, error) {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	tel, shutdownTelemetry, err := telemetry.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	logger := tel.Logger
 
 	pool, err := postgres.NewPool(ctx, cfg)
 	if err != nil {
+		_ = shutdownTelemetry(context.Background())
 		return nil, err
 	}
 
@@ -49,9 +54,9 @@ func New(ctx context.Context, cfg config.Config) (*Container, error) {
 	idempotencyRepo := repoIdempotency.New(pool)
 	historyRepo := repoHistory.New(pool)
 
-	createUC := createu.New(transactions, tripRepo, historyRepo, idempotencyRepo, cfg.DatabaseQueryTimeout)
+	createUC := createu.New(transactions, tripRepo, historyRepo, idempotencyRepo, cfg.DatabaseQueryTimeout, tel.Business, logger)
 	getUC := getu.New(tripRepo, cfg.DatabaseQueryTimeout)
-	finishUC := finishu.New(transactions, tripRepo, historyRepo, cfg.DatabaseQueryTimeout)
+	finishUC := finishu.New(transactions, tripRepo, historyRepo, cfg.DatabaseQueryTimeout, tel.Business, logger)
 
 	readiness := postgres.NewReadiness(pool, cfg.DatabaseQueryTimeout)
 
@@ -60,12 +65,15 @@ func New(ctx context.Context, cfg config.Config) (*Container, error) {
 	finishHandler := finishh.New(finishUC, logger)
 	healthHandler := healthh.New(readiness)
 
-	handler := httpx.NewRouter(createHandler, getHandler, finishHandler, healthHandler)
+	handler := httpx.NewRouter(createHandler, getHandler, finishHandler, healthHandler, logger, tel.TracerProvider, tel.MeterProvider)
 
 	return &Container{
 		Logger:          logger,
 		Handler:         handler,
 		ShutdownTimeout: cfg.ShutdownTimeout,
-		close:           pool.Close,
+		close: func() {
+			pool.Close()
+			_ = shutdownTelemetry(context.Background())
+		},
 	}, nil
 }
