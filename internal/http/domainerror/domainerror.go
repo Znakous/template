@@ -40,26 +40,26 @@ func Write(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err erro
 }
 
 func WriteBadRequest(w http.ResponseWriter, r *http.Request, detail string) {
-	status := http.StatusBadRequest
+	var status int32 = http.StatusBadRequest
 	body := problem(status, "Invalid request", "invalid_request", detail)
 	instance := r.URL.Path
 	body.Instance = &instance
-	respond.Problem(w, status, body)
+	respond.Problem(w, int(status), body)
 }
 
 func WriteInternal(w http.ResponseWriter, r *http.Request) {
-	status := http.StatusInternalServerError
+	var status int32 = http.StatusInternalServerError
 	body := problem(status, "Internal Server Error", "internal_error", "Internal server error")
 	instance := r.URL.Path
 	body.Instance = &instance
-	respond.Problem(w, status, body)
+	respond.Problem(w, int(status), body)
 }
 
-func problem(status int, title, code, detail string) api.Problem {
+func problem(status int32, title, code, detail string) api.Problem {
 	return api.Problem{
 		Type:   "https://tripgo.example/problems/" + strings.ReplaceAll(code, "_", "-"),
 		Title:  title,
-		Status: int32(status),
+		Status: status,
 		Detail: &detail,
 		Code:   code,
 	}

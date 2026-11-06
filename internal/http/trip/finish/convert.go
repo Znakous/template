@@ -7,9 +7,9 @@ import (
 
 func fromTrip(t trip.Trip) api.Trip {
 	return api.Trip{
-		Id:         api.TripId(t.ID),
-		UserId:     api.TripId(t.UserID),
-		DriverId:   api.TripId(t.DriverID),
+		Id:         t.ID,
+		UserId:     t.UserID,
+		DriverId:   t.DriverID,
 		StartPoint: api.Coordinates{Latitude: t.StartLatitude, Longitude: t.StartLongitude},
 		EndPoint:   api.Coordinates{Latitude: t.EndLatitude, Longitude: t.EndLongitude},
 		Price:      t.Price,

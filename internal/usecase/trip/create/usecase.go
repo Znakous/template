@@ -61,6 +61,16 @@ func (u *Usecase) Create(ctx context.Context, in Input, idempotencyKey *uuid.UUI
 		return Output{}, fmt.Errorf("fingerprint trip request: %w", err)
 	}
 
+	if idempotencyKey != nil {
+		replayed, replayedTrip, replayErr := u.replayOrExpire(ctx, *idempotencyKey, requestHash)
+		if replayErr != nil {
+			return Output{}, replayErr
+		}
+		if replayed {
+			return Output{Trip: replayedTrip}, nil
+		}
+	}
+
 	for range 2 {
 		created, err := u.insertTrip(ctx, *t, idempotencyKey, requestHash)
 		if err == nil {
@@ -68,7 +78,7 @@ func (u *Usecase) Create(ctx context.Context, in Input, idempotencyKey *uuid.UUI
 			u.logger.Info("trip created", "trip_id", created.ID.String())
 			return Output{Trip: created, Created: true}, nil
 		}
-		if idempotencyKey == nil || !errors.Is(err, trip.ErrIdempotencyKeyExists) {
+		if idempotencyKey == nil {
 			return Output{}, err
 		}
 
@@ -78,6 +88,9 @@ func (u *Usecase) Create(ctx context.Context, in Input, idempotencyKey *uuid.UUI
 		}
 		if replayed {
 			return Output{Trip: replayedTrip}, nil
+		}
+		if !errors.Is(err, trip.ErrIdempotencyKeyExists) {
+			return Output{}, err
 		}
 	}
 
@@ -89,13 +102,13 @@ func (u *Usecase) insertTrip(ctx context.Context, t trip.Trip, idempotencyKey *u
 	defer cancel()
 
 	err := u.transactions.Do(queryCtx, func(txCtx context.Context) error {
+		if err := u.trips.Create(txCtx, t); err != nil {
+			return fmt.Errorf("insert trip: %w", err)
+		}
 		if idempotencyKey != nil {
 			if err := u.idempotency.Create(txCtx, *idempotencyKey, t.ID, requestHash); err != nil {
 				return fmt.Errorf("store idempotency key: %w", err)
 			}
-		}
-		if err := u.trips.Create(txCtx, t); err != nil {
-			return fmt.Errorf("insert trip: %w", err)
 		}
 		if err := u.history.Add(txCtx, t.ID, nil, trip.StatusActive, nil); err != nil {
 			return fmt.Errorf("record initial trip status: %w", err)

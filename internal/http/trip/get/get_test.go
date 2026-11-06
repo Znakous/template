@@ -50,7 +50,7 @@ func TestGetTripOK(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/trips/"+id.String(), nil)
 
-	h.GetTrip(rec, req, api.TripId(id))
+	h.GetTrip(rec, req, id)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -77,7 +77,7 @@ func TestGetTripNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/trips/"+id.String(), nil)
 
-	h.GetTrip(rec, req, api.TripId(id))
+	h.GetTrip(rec, req, id)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)

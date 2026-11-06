@@ -35,7 +35,7 @@ func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request, params api.
 
 	var idempotencyKey *uuid.UUID
 	if params.IdempotencyKey != nil {
-		key := uuid.UUID(*params.IdempotencyKey)
+		key := *params.IdempotencyKey
 		idempotencyKey = &key
 	}
 

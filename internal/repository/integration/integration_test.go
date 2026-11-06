@@ -19,7 +19,7 @@ import (
 	repoTrip "github.com/Znakous/template/internal/repository/trip"
 )
 
-const defaultDSN = "postgres://tripgo:tripgo@localhost:5432/tripgo?sslmode=disable"
+const defaultDSN = "postgres://tripgo:tripgo@localhost:5432/tripgo?sslmode=disable" //nolint:gosec // локальный тестовый DSN со заглушками
 
 func dsn() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
@@ -131,14 +131,23 @@ func TestTripFinish(t *testing.T) {
 func TestIdempotencyRepo(t *testing.T) {
 	pool := newPool(t)
 	repo := repoIdempotency.New(pool)
-	key := uuid.New()
-	tripID := uuid.New()
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM trip_idempotency_keys WHERE key = $1`, key) })
+	trips := repoTrip.New(pool)
 
-	if err := repo.Create(context.Background(), key, tripID, "hash"); err != nil {
+	tr := newTrip(uuid.New())
+	if err := trips.Create(context.Background(), tr); err != nil {
+		t.Fatalf("create trip: %v", err)
+	}
+	key := uuid.New()
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM trip_idempotency_keys WHERE key = $1`, key)
+		_, _ = pool.Exec(ctx, `DELETE FROM trips WHERE id = $1`, tr.ID)
+	})
+
+	if err := repo.Create(context.Background(), key, tr.ID, "hash"); err != nil {
 		t.Fatalf("create key: %v", err)
 	}
-	if err := repo.Create(context.Background(), key, tripID, "hash"); !errors.Is(err, trip.ErrIdempotencyKeyExists) {
+	if err := repo.Create(context.Background(), key, tr.ID, "hash"); !errors.Is(err, trip.ErrIdempotencyKeyExists) {
 		t.Fatalf("expected ErrIdempotencyKeyExists, got %v", err)
 	}
 
@@ -146,7 +155,7 @@ func TestIdempotencyRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get key: %v", err)
 	}
-	if rec.TripID != tripID || rec.RequestHash != "hash" {
+	if rec.TripID != tr.ID || rec.RequestHash != "hash" {
 		t.Fatalf("unexpected record: %+v", rec)
 	}
 

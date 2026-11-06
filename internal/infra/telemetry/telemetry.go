@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,8 +19,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Znakous/template/internal/config"
 )
@@ -55,7 +56,12 @@ func New(cfg config.Config) (*Telemetry, func(context.Context) error, error) {
 		attribute.String("deployment.environment", "local"),
 	)
 
-	traceExporter, err := otlptracehttp.New(context.Background(), otlptracehttp.WithEndpointURL(cfg.OTELExporterOTLPEndpoint))
+	otlpHost, otlpInsecure := otlpHTTPOptions(cfg.OTELExporterOTLPEndpoint)
+	traceOpts := []otlptracehttp.Option{otlptracehttp.WithEndpoint(otlpHost)}
+	if otlpInsecure {
+		traceOpts = append(traceOpts, otlptracehttp.WithInsecure())
+	}
+	traceExporter, err := otlptracehttp.New(context.Background(), traceOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create OTLP trace exporter: %w", err)
 	}
@@ -66,7 +72,11 @@ func New(cfg config.Config) (*Telemetry, func(context.Context) error, error) {
 		sdktrace.WithResource(res),
 	)
 
-	metricExporter, err := otlpmetrichttp.New(context.Background(), otlpmetrichttp.WithEndpointURL(cfg.OTELExporterOTLPEndpoint))
+	metricOpts := []otlpmetrichttp.Option{otlpmetrichttp.WithEndpoint(otlpHost)}
+	if otlpInsecure {
+		metricOpts = append(metricOpts, otlpmetrichttp.WithInsecure())
+	}
+	metricExporter, err := otlpmetrichttp.New(context.Background(), metricOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create OTLP metric exporter: %w", err)
 	}
@@ -115,6 +125,14 @@ func New(cfg config.Config) (*Telemetry, func(context.Context) error, error) {
 			tripsCompleted: tripsCompleted,
 		},
 	}, shutdown, nil
+}
+
+func otlpHTTPOptions(endpoint string) (host string, insecure bool) {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return endpoint, true
+	}
+	return u.Host, u.Scheme != "https"
 }
 
 func parseSampler(value string) sdktrace.Sampler {

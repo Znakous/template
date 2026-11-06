@@ -1,8 +1,6 @@
 package create
 
 import (
-	"github.com/google/uuid"
-
 	"github.com/Znakous/template/internal/domain/trip"
 	"github.com/Znakous/template/internal/generated"
 	usecase "github.com/Znakous/template/internal/usecase/trip/create"
@@ -10,8 +8,8 @@ import (
 
 func toInput(data api.TripData) usecase.Input {
 	return usecase.Input{
-		UserID:         uuid.UUID(data.UserId),
-		DriverID:       uuid.UUID(data.DriverId),
+		UserID:         data.UserId,
+		DriverID:       data.DriverId,
 		StartLatitude:  data.StartPoint.Latitude,
 		StartLongitude: data.StartPoint.Longitude,
 		EndLatitude:    data.EndPoint.Latitude,
@@ -22,9 +20,9 @@ func toInput(data api.TripData) usecase.Input {
 
 func fromTrip(t trip.Trip) api.Trip {
 	return api.Trip{
-		Id:         api.TripId(t.ID),
-		UserId:     api.TripId(t.UserID),
-		DriverId:   api.TripId(t.DriverID),
+		Id:         t.ID,
+		UserId:     t.UserID,
+		DriverId:   t.DriverID,
 		StartPoint: api.Coordinates{Latitude: t.StartLatitude, Longitude: t.StartLongitude},
 		EndPoint:   api.Coordinates{Latitude: t.EndLatitude, Longitude: t.EndLongitude},
 		Price:      t.Price,

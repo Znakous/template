@@ -52,7 +52,7 @@ func TestFinishTripOK(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/trips/"+id.String()+"/finish", nil)
 
-	h.FinishTrip(rec, req, api.TripId(id))
+	h.FinishTrip(rec, req, id)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -82,7 +82,7 @@ func TestFinishTripCompleted(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/trips/"+id.String()+"/finish", nil)
 
-	h.FinishTrip(rec, req, api.TripId(id))
+	h.FinishTrip(rec, req, id)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)

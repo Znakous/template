@@ -20,7 +20,6 @@ func testUsecase(t *testing.T, ctrl *gomock.Controller) (
 	*MocktxManager,
 	*MocktripRepository,
 	*MockstatusHistoryRepository,
-	*MockidempotencyRepository,
 	*Mockmetrics,
 ) {
 	t.Helper()
@@ -31,7 +30,7 @@ func testUsecase(t *testing.T, ctrl *gomock.Controller) (
 	metrics := NewMockmetrics(ctrl)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	uc := create.New(tx, trips, history, idem, time.Second, metrics, logger)
-	return uc, tx, trips, history, idem, metrics
+	return uc, tx, trips, history, metrics
 }
 
 func runInTx() gomock.Matcher {
@@ -53,7 +52,7 @@ func validInput() create.Input {
 func TestCreate_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	uc, tx, trips, history, _, metrics := testUsecase(t, ctrl)
+	uc, tx, trips, history, metrics := testUsecase(t, ctrl)
 
 	tx.EXPECT().Do(gomock.Any(), runInTx()).DoAndReturn(
 		func(_ context.Context, fn func(context.Context) error) error { return fn(context.Background()) },
@@ -77,7 +76,7 @@ func TestCreate_Success(t *testing.T) {
 func TestCreate_DriverBusy(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	uc, tx, trips, _, _, _ := testUsecase(t, ctrl)
+	uc, tx, trips, _, _ := testUsecase(t, ctrl)
 
 	tx.EXPECT().Do(gomock.Any(), runInTx()).DoAndReturn(
 		func(_ context.Context, fn func(context.Context) error) error { return fn(context.Background()) },
@@ -93,7 +92,7 @@ func TestCreate_DriverBusy(t *testing.T) {
 func TestCreate_InvalidInput(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	uc, _, _, _, _, _ := testUsecase(t, ctrl)
+	uc, _, _, _, _ := testUsecase(t, ctrl)
 
 	in := validInput()
 	in.UserID = uuid.Nil
@@ -111,7 +110,7 @@ func TestCreate_InvalidInput(t *testing.T) {
 func TestCreate_RepositoryError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	uc, tx, trips, _, _, metrics := testUsecase(t, ctrl)
+	uc, tx, trips, _, metrics := testUsecase(t, ctrl)
 
 	metrics.EXPECT().TripCreated(gomock.Any()).Times(0)
 	tx.EXPECT().Do(gomock.Any(), runInTx()).DoAndReturn(

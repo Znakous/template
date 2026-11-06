@@ -32,15 +32,15 @@ func TestNew(t *testing.T) {
 	})
 
 	tests := []struct {
-		name       string
-		userID     uuid.UUID
-		driverID   uuid.UUID
-		startLat   float64
-		startLng   float64
-		endLat     float64
-		endLng     float64
-		price      int64
-		wantField  string
+		name      string
+		userID    uuid.UUID
+		driverID  uuid.UUID
+		startLat  float64
+		startLng  float64
+		endLat    float64
+		endLng    float64
+		price     int64
+		wantField string
 	}{
 		{
 			name:      "empty userID",

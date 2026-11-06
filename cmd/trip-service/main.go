@@ -14,13 +14,18 @@ import (
 )
 
 func main() {
+	os.Exit(runMain())
+}
+
+func runMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "trip service stopped with an error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run(ctx context.Context) error {
