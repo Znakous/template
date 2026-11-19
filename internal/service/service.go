@@ -33,11 +33,18 @@ type IdempotencyRepository interface {
 	Delete(ctx context.Context, key uuid.UUID) error
 }
 
+type PositionRepository interface {
+	Save(ctx context.Context, position model.TripPosition) (model.TripPosition, error)
+	List(ctx context.Context, tripID uuid.UUID) ([]model.TripPosition, error)
+	FindStaleTrips(ctx context.Context, staleAfter time.Duration) ([]model.StaleTrip, error)
+}
+
 type Service struct {
 	transactions transaction.TxManager
 	trips        TripRepository
 	history      StatusHistoryRepository
 	idempotency  IdempotencyRepository
+	positions    PositionRepository
 	queryTimeout time.Duration
 }
 
@@ -46,6 +53,7 @@ func New(
 	trips TripRepository,
 	history StatusHistoryRepository,
 	idempotency IdempotencyRepository,
+	positions PositionRepository,
 	queryTimeout time.Duration,
 ) *Service {
 	return &Service{
@@ -53,6 +61,7 @@ func New(
 		trips:        trips,
 		history:      history,
 		idempotency:  idempotency,
+		positions:    positions,
 		queryTimeout: queryTimeout,
 	}
 }
@@ -174,6 +183,50 @@ func (s *Service) FinishTrip(ctx context.Context, id uuid.UUID) (model.Trip, err
 		return model.Trip{}, fmt.Errorf("finish trip transaction: %w", err)
 	}
 	return trip, nil
+}
+
+func (s *Service) SavePosition(ctx context.Context, position model.TripPosition) (model.TripPosition, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
+
+	var saved model.TripPosition
+	err := s.transactions.Do(queryCtx, func(txCtx context.Context) error {
+		var err error
+		saved, err = s.positions.Save(txCtx, position)
+		if err != nil {
+			return fmt.Errorf("save trip position: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return model.TripPosition{}, fmt.Errorf("save trip position transaction: %w", err)
+	}
+	return saved, nil
+}
+
+func (s *Service) ListPositions(ctx context.Context, tripID uuid.UUID) ([]model.TripPosition, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
+
+	if _, err := s.trips.GetByID(queryCtx, tripID); err != nil {
+		return nil, fmt.Errorf("get trip before listing positions: %w", err)
+	}
+	positions, err := s.positions.List(queryCtx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("list trip positions: %w", err)
+	}
+	return positions, nil
+}
+
+func (s *Service) FindStaleTrips(ctx context.Context, staleAfter time.Duration) ([]model.StaleTrip, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
+
+	trips, err := s.positions.FindStaleTrips(queryCtx, staleAfter)
+	if err != nil {
+		return nil, fmt.Errorf("find stale trips: %w", err)
+	}
+	return trips, nil
 }
 
 func requestFingerprint(trip model.Trip) (string, error) {

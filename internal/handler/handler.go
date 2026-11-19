@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -27,16 +28,33 @@ type tripService interface {
 	CreateTrip(ctx context.Context, trip model.Trip, idempotencyKey *uuid.UUID) (model.Trip, bool, error)
 	GetTrip(ctx context.Context, id uuid.UUID) (model.Trip, error)
 	FinishTrip(ctx context.Context, id uuid.UUID) (model.Trip, error)
+	SavePosition(ctx context.Context, position model.TripPosition) (model.TripPosition, error)
+	ListPositions(ctx context.Context, tripID uuid.UUID) ([]model.TripPosition, error)
+}
+
+type positionCanceller interface {
+	Cancel(ctx context.Context, tripID uuid.UUID)
+}
+
+type positionMetrics interface {
+	PositionSaved(ctx context.Context)
 }
 
 type handler struct {
 	api.Unimplemented
 	readiness readinessChecker
 	trips     tripService
+	canceller positionCanceller
+	metrics   positionMetrics
 }
 
-func New(readiness readinessChecker, trips tripService) http.Handler {
-	requestHandler := &handler{readiness: readiness, trips: trips}
+func New(readiness readinessChecker, trips tripService, canceller positionCanceller, metrics positionMetrics) http.Handler {
+	requestHandler := &handler{
+		readiness: readiness,
+		trips:     trips,
+		canceller: canceller,
+		metrics:   metrics,
+	}
 	router := chi.NewRouter()
 	return api.HandlerWithOptions(requestHandler, api.ChiServerOptions{
 		BaseRouter:       router,
@@ -111,6 +129,49 @@ func (h *handler) FinishTrip(w http.ResponseWriter, r *http.Request, tripID api.
 		return
 	}
 	writeJSON(w, http.StatusOK, tripResponse(trip))
+}
+
+func (h *handler) CreateTripPosition(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	data, err := decodePositionData(w, r)
+	if err != nil {
+		writeProblem(w, r, http.StatusBadRequest, "Invalid request", "invalid_request", "Request validation failed: "+err.Error())
+		return
+	}
+	if !validCoordinates(data.Coordinates) || data.RecordedAt.After(time.Now().Add(time.Minute)) {
+		writeProblem(w, r, http.StatusBadRequest, "Invalid request", "invalid_request", "Request validation failed")
+		return
+	}
+
+	position, err := h.trips.SavePosition(r.Context(), model.TripPosition{
+		TripID:     uuid.UUID(tripID),
+		Latitude:   data.Coordinates.Latitude,
+		Longitude:  data.Coordinates.Longitude,
+		RecordedAt: data.RecordedAt,
+	})
+	if err != nil {
+		h.writeTripError(w, r, err)
+		return
+	}
+	if h.canceller != nil {
+		h.canceller.Cancel(r.Context(), position.TripID)
+	}
+	if h.metrics != nil {
+		h.metrics.PositionSaved(r.Context())
+	}
+	writeJSON(w, http.StatusCreated, positionResponse(position))
+}
+
+func (h *handler) ListTripPositions(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	positions, err := h.trips.ListPositions(r.Context(), uuid.UUID(tripID))
+	if err != nil {
+		h.writeTripError(w, r, err)
+		return
+	}
+	response := api.TripPositionsResponse{Positions: make([]api.TripPosition, 0, len(positions))}
+	for _, position := range positions {
+		response.Positions = append(response.Positions, positionResponse(position))
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *handler) writeTripError(w http.ResponseWriter, r *http.Request, err error) {
@@ -209,6 +270,50 @@ func decodeTripData(w http.ResponseWriter, r *http.Request) (api.TripData, error
 	return data, nil
 }
 
+func decodePositionData(w http.ResponseWriter, r *http.Request) (api.PositionData, error) {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return api.PositionData{}, fmt.Errorf("content type must be application/json")
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		return api.PositionData{}, fmt.Errorf("read request body: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var data api.PositionData
+	if err := decoder.Decode(&data); err != nil {
+		return api.PositionData{}, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return api.PositionData{}, fmt.Errorf("request body must contain one JSON value")
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
+		return api.PositionData{}, fmt.Errorf("request body must be a JSON object")
+	}
+	for _, key := range []string{"coordinates", "recorded_at"} {
+		value, ok := fields[key]
+		if !ok || isJSONNull(value) {
+			return api.PositionData{}, fmt.Errorf("required field %q is missing or null", key)
+		}
+	}
+	var coordinates map[string]json.RawMessage
+	if err := json.Unmarshal(fields["coordinates"], &coordinates); err != nil || coordinates == nil {
+		return api.PositionData{}, fmt.Errorf("coordinates must be an object")
+	}
+	for _, key := range []string{"latitude", "longitude"} {
+		value, ok := coordinates[key]
+		if !ok || isJSONNull(value) {
+			return api.PositionData{}, fmt.Errorf("coordinates.%s is missing or null", key)
+		}
+	}
+	return data, nil
+}
+
 func isJSONNull(value json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
 }
@@ -220,14 +325,27 @@ func validCoordinates(coordinates api.Coordinates) bool {
 
 func tripResponse(trip model.Trip) api.Trip {
 	return api.Trip{
-		Id:         api.TripId(trip.ID),
-		UserId:     uuid.UUID(trip.UserID),
-		DriverId:   uuid.UUID(trip.DriverID),
-		StartPoint: api.Coordinates{Latitude: trip.StartLatitude, Longitude: trip.StartLongitude},
-		EndPoint:   api.Coordinates{Latitude: trip.EndLatitude, Longitude: trip.EndLongitude},
-		Price:      trip.Price,
-		Status:     api.TripStatus(trip.Status),
-		StartedAt:  trip.StartedAt,
-		FinishedAt: trip.FinishedAt,
+		Id:             api.TripId(trip.ID),
+		UserId:         uuid.UUID(trip.UserID),
+		DriverId:       uuid.UUID(trip.DriverID),
+		StartPoint:     api.Coordinates{Latitude: trip.StartLatitude, Longitude: trip.StartLongitude},
+		EndPoint:       api.Coordinates{Latitude: trip.EndLatitude, Longitude: trip.EndLongitude},
+		Price:          trip.Price,
+		Status:         api.TripStatus(trip.Status),
+		StartedAt:      trip.StartedAt,
+		FinishedAt:     trip.FinishedAt,
+		LastPositionAt: trip.LastPositionAt,
+	}
+}
+
+func positionResponse(position model.TripPosition) api.TripPosition {
+	return api.TripPosition{
+		Id:     position.ID,
+		TripId: api.TripId(position.TripID),
+		Coordinates: api.Coordinates{
+			Latitude:  position.Latitude,
+			Longitude: position.Longitude,
+		},
+		RecordedAt: position.RecordedAt,
 	}
 }

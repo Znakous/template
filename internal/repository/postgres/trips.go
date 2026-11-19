@@ -18,7 +18,7 @@ import (
 
 var psql = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
 
-const tripColumns = "id, user_id, driver_id, start_latitude, start_longitude, end_latitude, end_longitude, price, status, started_at, finished_at"
+const tripColumns = "id, user_id, driver_id, start_latitude, start_longitude, end_latitude, end_longitude, price, status, started_at, finished_at, last_position_at"
 
 type Trips struct {
 	database transaction.Executor
@@ -93,6 +93,7 @@ func (r *Trips) Finish(ctx context.Context, id uuid.UUID, finishedAt time.Time) 
 func scanTrip(row pgx.Row) (model.Trip, error) {
 	var trip model.Trip
 	var finishedAt pgtype.Timestamptz
+	var lastPositionAt pgtype.Timestamptz
 	if err := row.Scan(
 		&trip.ID,
 		&trip.UserID,
@@ -105,11 +106,15 @@ func scanTrip(row pgx.Row) (model.Trip, error) {
 		&trip.Status,
 		&trip.StartedAt,
 		&finishedAt,
+		&lastPositionAt,
 	); err != nil {
 		return model.Trip{}, fmt.Errorf("scan trip: %w", err)
 	}
 	if finishedAt.Valid {
 		trip.FinishedAt = &finishedAt.Time
+	}
+	if lastPositionAt.Valid {
+		trip.LastPositionAt = &lastPositionAt.Time
 	}
 	return trip, nil
 }

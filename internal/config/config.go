@@ -23,6 +23,15 @@ type Config struct {
 	DatabaseMaxConnLifetime time.Duration
 	DatabaseConnectTimeout  time.Duration
 	DatabaseQueryTimeout    time.Duration
+	PositionCheckInterval   time.Duration
+	PositionStaleAfter      time.Duration
+	PositionWorkers         int
+	PositionQueueSize       int
+	PushHTTPURL             string
+	PushRequestTimeout      time.Duration
+	OTELServiceName         string
+	OTELExporterEndpoint    string
+	OTELExporterProtocol    string
 }
 
 func Load() (Config, error) {
@@ -68,10 +77,39 @@ func Load() (Config, error) {
 	if cfg.DatabaseQueryTimeout, err = requiredDuration("DATABASE_QUERY_TIMEOUT"); err != nil {
 		return Config{}, err
 	}
+	if cfg.PositionCheckInterval, err = requiredDuration("POSITION_CHECK_INTERVAL"); err != nil {
+		return Config{}, err
+	}
+	if cfg.PositionStaleAfter, err = requiredDuration("POSITION_STALE_AFTER"); err != nil {
+		return Config{}, err
+	}
+	if cfg.PositionWorkers, err = requiredPositiveInt("POSITION_WORKERS"); err != nil {
+		return Config{}, err
+	}
+	if cfg.PositionQueueSize, err = requiredPositiveInt("POSITION_QUEUE_SIZE"); err != nil {
+		return Config{}, err
+	}
+	if cfg.PushHTTPURL, err = required("PUSH_HTTP_URL"); err != nil {
+		return Config{}, err
+	}
+	if cfg.PushRequestTimeout, err = requiredDuration("PUSH_REQUEST_TIMEOUT"); err != nil {
+		return Config{}, err
+	}
+	if cfg.OTELServiceName, err = required("OTEL_SERVICE_NAME"); err != nil {
+		return Config{}, err
+	}
+	if cfg.OTELExporterEndpoint, err = required("OTEL_EXPORTER_OTLP_ENDPOINT"); err != nil {
+		return Config{}, err
+	}
+	if cfg.OTELExporterProtocol, err = required("OTEL_EXPORTER_OTLP_PROTOCOL"); err != nil {
+		return Config{}, err
+	}
+	if cfg.OTELExporterProtocol != "http/protobuf" {
+		return Config{}, fmt.Errorf("OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf")
+	}
 	if cfg.DatabaseMaxConns <= 0 || cfg.DatabaseMinConns < 0 || cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
 		return Config{}, fmt.Errorf("DATABASE_MIN_CONNS must be non-negative and no greater than DATABASE_MAX_CONNS")
 	}
-
 	return cfg, nil
 }
 
@@ -108,6 +146,18 @@ func requiredInt32(name string) (int32, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return int32(parsed), nil
+}
+
+func requiredPositiveInt(name string) (int, error) {
+	value, err := required(name)
+	if err != nil {
+		return 0, err
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return parsed, nil
 }
 
 func logLevel() (slog.Level, error) {

@@ -30,7 +30,7 @@ new-migration:
 	sh tools/goose.sh
 
 generate:
-	go tool oapi-codegen -generate types,chi-server -include-operation-ids createTrip,getTrip,finishTrip,health,ready -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
+	go tool oapi-codegen -generate types,chi-server -include-operation-ids createTrip,getTrip,finishTrip,health,ready,createTripPosition,listTripPositions -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
 
 kill:
 	@pkill -f "trip-service" || true

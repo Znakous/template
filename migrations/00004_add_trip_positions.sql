@@ -1,4 +1,6 @@
 -- +goose Up
+ALTER TABLE trips ADD COLUMN last_position_at TIMESTAMPTZ;
+
 CREATE TABLE trip_positions (
                                 id          BIGSERIAL PRIMARY KEY,
                                 trip_id     UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
@@ -11,7 +13,12 @@ CREATE TABLE trip_positions (
 CREATE INDEX IF NOT EXISTS trip_positions_trip_recorded_idx
     ON trip_positions (trip_id, recorded_at, id);
 
--- +goose Down
-DROP TABLE IF EXISTS trip_positions;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS trips_active_stale_position_idx
+    ON trips ((COALESCE(last_position_at, started_at)), id)
+    WHERE status = 'active';
 
+-- +goose Down
+DROP INDEX CONCURRENTLY IF EXISTS trips_active_stale_position_idx;
+DROP TABLE IF EXISTS trip_positions;
 DROP INDEX IF EXISTS trip_positions_trip_recorded_idx;
+ALTER TABLE trips DROP COLUMN last_position_at;
