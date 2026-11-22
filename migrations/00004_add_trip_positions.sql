@@ -1,0 +1,24 @@
+-- +goose Up
+ALTER TABLE trips ADD COLUMN last_position_at TIMESTAMPTZ;
+
+CREATE TABLE trip_positions (
+                                id          BIGSERIAL PRIMARY KEY,
+                                trip_id     UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+                                latitude    DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+                                longitude   DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+                                recorded_at TIMESTAMPTZ NOT NULL,
+                                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS trip_positions_trip_recorded_idx
+    ON trip_positions (trip_id, recorded_at, id);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS trips_active_stale_position_idx
+    ON trips ((COALESCE(last_position_at, started_at)), id)
+    WHERE status = 'active';
+
+-- +goose Down
+DROP INDEX CONCURRENTLY IF EXISTS trips_active_stale_position_idx;
+DROP TABLE IF EXISTS trip_positions;
+DROP INDEX IF EXISTS trip_positions_trip_recorded_idx;
+ALTER TABLE trips DROP COLUMN last_position_at;
